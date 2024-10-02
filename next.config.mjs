@@ -1,5 +1,6 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
+/** @type {import("next").NextConfig} */
+let nextConfig = {
+  basePath: "/library",
   reactStrictMode: true,
 };
 

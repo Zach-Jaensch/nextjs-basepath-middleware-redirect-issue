@@ -1,40 +1,36 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# 308 redirects for \_next/data with basePath and middleware
 
-## Getting Started
-
-First, run the development server:
+## Get started
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+corepack enable
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## The issue
 
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
+This repo has the following set up
 
-[API routes](https://nextjs.org/docs/api-routes/introduction) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
+- a single pages router page with a link to itself
+- middleware (the contents of which doesn't matter)
+- basePath configured (any config here will cause the issue)
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/api-routes/introduction) instead of React pages.
+With the app running, clicking on the link will request the _next/data -> `/library/_next/data/index.json`
+This request will get redirected to `/library`, which has a `text/html` format
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+If you require information from the page props, it will throw as the response is expected to be `application/json`.
 
-## Learn More
+## Cause of the issue
 
-To learn more about Next.js, take a look at the following resources:
+Internally, there is a [redirect for trailing slash](https://github.com/vercel/next.js/blob/c3006f6c41484b961919d3526f30370668bbda16/packages/next/src/lib/load-custom-routes.ts#L757-L763), and a [request modifier for next data requests when middleware is present](https://github.com/vercel/next.js/blob/c3006f6c41484b961919d3526f30370668bbda16/packages/next/src/server/lib/router-utils/resolve-routes.ts#L378). 
+The request middleware is reformatting the request pathname from `/library/_next/data/index.json` to `/library/` in preparation for the middleware. 
+If it was any other page (for example `/test`) the reformatting would change `/library/_next/data/test.json` to `/library/test`.
+Without the basePath, this is ok (`/_next/data/index.json` to `/`) however, [with the addition of basePath](https://github.com/vercel/next.js/blob/c3006f6c41484b961919d3526f30370668bbda16/packages/next/src/server/lib/router-utils/resolve-routes.ts#L412-L414), it now has a trailing slash, and hence the trailing slash redirect will be invoked. 
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+As a workaround, our team has implemented a pnpm patch similar to:
+```diff
+if (hadBasePath) {
+-  normalized = path.posix.join(config.basePath, normalized)
++  normalized = path.posix.join(config.basePath, normalized).replace(/\/$/, "");
+}
+```
